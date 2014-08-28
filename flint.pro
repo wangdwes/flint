@@ -13,8 +13,10 @@ TEMPLATE = app
 
 
 SOURCES += main.cpp\
-        mainwindow.cpp
+        mainwindow.cpp \
+    oscilloscope.cpp
 
-HEADERS  += mainwindow.h
+HEADERS  += mainwindow.h \
+    oscilloscope.h
 
 FORMS    += mainwindow.ui
