@@ -1,0 +1,21 @@
+<RCC>
+    <qresource prefix="/">
+        <file>images/channel-0.bmp</file>
+        <file>images/channel-1.bmp</file>
+        <file>images/channel-2.bmp</file>
+        <file>images/channel-3.bmp</file>
+        <file>images/channel-4.bmp</file>
+        <file>images/channel-5.bmp</file>
+        <file>images/channel-6.bmp</file>
+        <file>images/channel-7.bmp</file>
+        <file>images/channel-8.bmp</file>
+        <file>images/channel-9.bmp</file>
+        <file>images/channel-dock.bmp</file>
+        <file>images/hcursor-0.bmp</file>
+        <file>images/hcursor-1.bmp</file>
+        <file>images/hcursor-2.bmp</file>
+        <file>images/vcursor-0.bmp</file>
+        <file>images/vcursor-1.bmp</file>
+        <file>images/vcursor-2.bmp</file>
+    </qresource>
+</RCC>

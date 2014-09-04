@@ -20,3 +20,6 @@ HEADERS  += mainwindow.h \
     oscilloscope.h
 
 FORMS    += mainwindow.ui
+
+RESOURCES += \
+    resources.qrc

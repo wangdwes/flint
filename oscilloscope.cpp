@@ -1,5 +1,6 @@
 #include "oscilloscope.h"
 
+#include <QTime>
 #include <QDebug>
 #include <QPainter>
 #include <QPaintEvent>
@@ -11,20 +12,12 @@ Oscilloscope::Oscilloscope(QWidget *parent) :
 
     setAttribute(Qt::WA_AcceptDrops);
     setAttribute(Qt::WA_ForceUpdatesDisabled);
-
-    // Indicates that the widget has no background, i.e, when the widget
-    // receives paint events, the background is not automatically repainted.
     setAttribute(Qt::WA_NoSystemBackground, false);
-
-    // Indicates that the widget contents are north-west aligned and static. On resize,
-    // such a widget will receive paint events only for parts of itself that are newly visible.
     setAttribute(Qt::WA_StaticContents, true);
-
-    // Indicates that the widget paints all its pixels when it receives paint event.
     setAttribute(Qt::WA_OpaquePaintEvent, true);
 
     maximumViewport.setRect(0, 0, 1200, 800);
-    currentViewport.setTopLeft(QPoint(0, 0));
+    currentViewport.setTopLeft(QPoint(400, 0));
 
     verticalMajorDots.append(QPoint(0, 0));
     horizontalMajorDots.append(QPoint(0, 0));
@@ -32,7 +25,31 @@ Oscilloscope::Oscilloscope(QWidget *parent) :
     horizontalMinorDots.append(QPoint(0, 0));
     verticalTicks.append(QLine(0, 0, tickMarkLength, 0));
     horizontalTicks.append(QLine(0, 0, 0, tickMarkLength));
+
+    testMarker = Marker::instantiate(1, 400, 1, Marker::Bottom, QPoint(1, 1),
+                                     QBitmap("://images/hcursor-1.bmp"),
+                                     QBitmap("://images/hcursor-1.bmp"));
+
+    testMarker2 = Marker::instantiate(1, 350, 1, Marker::Bottom, QPoint(1, 11),
+                                     QBitmap("://images/hcursor-2.bmp"),
+                                     QBitmap("://images/hcursor-2.bmp"));
+
+    testMarker3 = Marker::instantiate(1, 400, 1, Marker::Left, QPoint(1, 1),
+                                     QBitmap("://images/vcursor-1.bmp"),
+                                     QBitmap("://images/vcursor-1.bmp"));
+
+    testMarker4 = Marker::instantiate(1, 350, 1, Marker::Left, QPoint(1, 11),
+                                     QBitmap("://images/vcursor-2.bmp"),
+                                     QBitmap("://images/vcursor-2.bmp"));
+
+
+    cursors.append(&testMarker);
+    cursors.append(&testMarker2);
+    cursors.append(&testMarker3);
+    cursors.append(&testMarker4);
 }
+
+
 
 void Oscilloscope::moveViewport(const QPoint &delta)
 {
@@ -51,13 +68,196 @@ void Oscilloscope::moveViewport(const QPoint &delta)
     // Some flickers can still be observed when scrolling, c.f.:
     // http://stackoverflow.com/questions/10173348/how-to-avoid-perceived-flicker-during-scrolling-in-qt
 
+#define IS_HORIZONTAL(M) (((M)->mountEdge == Marker::Top)  || ((M)->mountEdge == Marker::Bottom))
+#define IS_VERTICAL(M)   (((M)->mountEdge == Marker::Left) || ((M)->mountEdge == Marker::Right))
+
+    for (int index = 0; index < cursors.count(); index++) {
+        Marker *marker = cursors.value(index); int oldDepth = marker->depth;
+        QRect oldDrawRect = marker->drawRect, oldSensitiveRect = marker->sensitiveRect;
+
+        // There are three rects involved here: the OLD and the NEW rects are rects before
+        // and after the update respectively, and the translated rect is the old rect
+        // translated by amount negative delta.
+
+        // If the depth has changed, either its docking status has changed, meaning that
+        // no rect completely overlaps with one another (since docked and undocked markers
+        // typically have different geometries), and we would have to update all three rects;
+        // or, the marker is docked and remains to be docked, meaning that the old rect
+        // and the new rect completely overlap each other, but it still doesn't hurt to
+        // update that region twice, thanks to the underlying framework.
+
+        if (marker->depth != updateMarkerGeometry(marker)) {
+            update (oldDrawRect);
+            update (oldDrawRect.translated(-delta));
+            update (marker->drawRect); }
+
+        // If the depth remains unchanged, the marker is undocked and continues to be undocked.
+        // If the viewport is only scrolled with respect to the axis on which the marker is mounted,
+        // the marker has itself scrolled by appropriate amount with the grid-lines, eliminating
+        // the need to redraw anything. However, if the scroll vector has non-zero component
+        // on the perpendicular axis, the marker would have been scrolled to the wrong place,
+        // and we would have to clean the 'wrong place' and redraw it at where it should be.
+
+        else {
+            if (delta.x() == 0 && IS_VERTICAL(marker)) continue;
+            if (delta.y() == 0 && IS_HORIZONTAL(marker)) continue;
+            update (oldDrawRect);
+            update (oldDrawRect.translated(-delta)); }
+
+        // Note that the region class does not accept rects with zero height or width,
+        // therefore if we want to draw or clean the draw-line, we would have to update
+        // a larger area, and the sensitive-area seems to be a good candidate.
+
+        if (marker->depth == 0 && oldDepth != 0) update (marker->sensitiveRect); // draw.
+        if (marker->depth != 0 && oldDepth == 0) update (oldSensitiveRect); // clean.
+
+    }
+
+#undef IS_HORIZONTAL
+#undef IS_VERTICAL
+
 }
 
-void Oscilloscope::updateCursorGeometry(PositionMarker *cursor)
-{
-    int lowerBound = cursor->isVertical ? currentViewport.top(): currentViewport.left();
-    int uppreBound = cursor->isVertical ? currentViewport.bottom(): currentViewport.right();
 
+
+void Oscilloscope::moveMarker(Marker *marker, const QPoint& delta)
+{
+
+    if (1) {
+
+        int proposedPosition = marker->position + delta.x();
+        if (proposedPosition <= maximumViewport.right() && proposedPosition >= maximumViewport.left()) {
+            marker->position = proposedPosition; else return; }
+
+    else if (2) {
+
+        int proposedPosition = marker->position + delta.y();
+        if (proposedPosition <= maximumViewport.bottom() && proposedPosition >= maximumViewport.top())
+            marker->position = proposedPosition; else return; }
+
+
+
+#define IS_HORIZONTAL(M) (((M)->mountEdge == Marker::Top)  || ((M)->mountEdge == Marker::Bottom))
+#define IS_VERTICAL(M)   (((M)->mountEdge == Marker::Left) || ((M)->mountEdge == Marker::Right))
+
+
+
+#undef IS_HORIZONTAL
+#undef IS_VERTICAL
+
+}
+
+
+
+int Oscilloscope::updateMarkerGeometry(Marker *marker)
+{
+
+    int halfWidth = marker->undockedBitmap.width() >> 1;
+    int halfHeight = marker->undockedBitmap.height() >> 1, proposedDepth = 0;
+
+    // I tried to share as much code as possible between the horizontal case and the vertical
+    // case. It has turned out that the new code is shorter indeed, but it has also become
+    // less intuitive and straightforward. I decided to stick with the original approach.
+
+    // In both cases, the colliding volume of the marker is compared with the bounds
+    // to determine whether the marker should be docked, and if so, where. To avoid
+    // slow operation such as bitmap transformation, we have prepared markers of all
+    // possible orientations on object instantiation. Here we simply assign one of them
+    // to our draw-bitmap, thanks to the implicit sharing mechanism.
+
+    switch (marker->mountEdge) {
+    case Marker::Top:
+    case Marker::Bottom:
+
+        // This is the horizontal case, i.e., the marker marks a position on the horizontal axis.
+        // The layout is always done as if it were mounted on the top edge, and additional
+        // processing is carried out afterwards.
+
+        if ((proposedDepth = marker->position - halfWidth - currentViewport.left() - marker->deadzone) < 0) {
+            marker->depth = proposedDepth;
+            marker->drawBitmap = marker->lowerDockedBitmap;
+            marker->drawRect.setSize(marker->drawBitmap.size());
+            marker->drawRect.moveTop(marker->dockPosition.y());
+            marker->drawRect.moveLeft(marker->dockPosition.x()); }
+
+        else if ((proposedDepth = marker->position + halfWidth - currentViewport.right() + marker->deadzone) > 0) {
+            marker->depth = proposedDepth;
+            marker->drawBitmap = marker->upperDockedBitmap;
+            marker->drawRect.setSize(marker->drawBitmap.size());
+            marker->drawRect.moveTop(marker->dockPosition.y());
+            marker->drawRect.moveRight(currentViewport.width() - 1 - marker->dockPosition.x()); }
+
+        else { marker->depth = 0; marker->drawBitmap = marker->undockedBitmap;
+            marker->drawRect.setSize(marker->drawBitmap.size());
+            marker->drawRect.moveCenter(QPoint(marker->position - currentViewport.left(), 0));
+            marker->drawRect.moveTop(marker->ceiling);
+            marker->drawLine.setLine(0, marker->drawBitmap.height() + marker->ceiling, 0, plotAreaRect.height() - 1);
+            marker->drawLine.translate(marker->position - currentViewport.left(), 0);
+            marker->sensitiveRect = marker->drawRect;
+            marker->sensitiveRect.setBottom(plotAreaRect.height() - 1); }
+
+        break;
+
+    case Marker::Left:
+    case Marker::Right:
+
+        // This is the vertical case, i.e., the marker marks a position on the vertical axis.
+        // The layout is always done as if it were mounted on the left edge, and additional
+        // processing is carried out afterwards.
+
+        if ((proposedDepth = marker->position - halfHeight - currentViewport.top() - marker->deadzone) < 0) {
+            marker->depth = proposedDepth;
+            marker->drawBitmap = marker->lowerDockedBitmap;
+            marker->drawRect.setSize(marker->drawBitmap.size());
+            marker->drawRect.moveTop(marker->dockPosition.x());
+            marker->drawRect.moveLeft(marker->dockPosition.y()); }
+
+        else if ((proposedDepth = marker->position + halfHeight - currentViewport.bottom() + marker->deadzone) > 0) {
+            marker->depth = proposedDepth;
+            marker->drawBitmap = marker->upperDockedBitmap;
+            marker->drawRect.setSize(marker->drawBitmap.size());
+            marker->drawRect.moveLeft(marker->dockPosition.y());
+            marker->drawRect.moveBottom(currentViewport.height() - 1 - marker->dockPosition.x()); }
+
+        else { marker->depth = 0; marker->drawBitmap = marker->undockedBitmap;
+            marker->drawRect.setSize(marker->drawBitmap.size());
+            marker->drawRect.moveCenter(QPoint(0, marker->position - currentViewport.top()));
+            marker->drawRect.moveLeft(marker->ceiling);
+            marker->drawLine.setLine(marker->drawBitmap.width() + marker->ceiling, 0, plotAreaRect.width() - 1, 0);
+            marker->drawLine.translate(0, marker->position - currentViewport.top());
+            marker->sensitiveRect = marker->drawRect;
+            marker->sensitiveRect.setRight(plotAreaRect.width() - 1); }
+
+        break; }
+
+    // This is the aforementioned 'additional processing'. Here we take advantage of the
+    // geometric symmetry of the bitmaps, instead of strictly mirroring and translating
+    // the marker, we simply move one of its appropriate edge.
+
+    if (marker->mountEdge == Marker::Right) {
+        marker->drawRect.moveRight(currentViewport.width() - 1 - marker->drawRect.left());
+        marker->drawLine.translate(0 - marker->drawRect.width() - marker->ceiling, 0); }
+    if (marker->mountEdge == Marker::Bottom) {
+        marker->drawRect.moveBottom(currentViewport.height() - 1 - marker->drawRect.top());
+        marker->drawLine.translate(0, 0 - marker->drawRect.height() - marker->ceiling); }
+
+    // If the marker is docked or inactive, do not draw a line, and
+    // the mouse-sensitive rect only contains the draw-rect, not the draw-line.
+
+    if (marker->depth != 0 || !marker->isActive) {
+        marker->drawLine.setP2(marker->drawLine.p1());
+        marker->sensitiveRect = marker->drawRect; }
+
+    marker->drawRect.translate(plotAreaRect.topLeft());
+    marker->drawLine.translate(plotAreaRect.topLeft());
+    marker->sensitiveRect.translate(plotAreaRect.topLeft());
+
+    // Actually there is still room for further optimization. If the marker is already docked
+    // somewhere, and a new round of calculation shows that it should remain where it is, we
+    // do not have to re-assign the bitmap and the coordinates again. However, compared to
+    // the time saved by avoiding bitmap transformation, this is rather trivial.
+
+    return marker->depth;
 }
 
 bool Oscilloscope::event(QEvent *event)
@@ -84,15 +284,17 @@ void Oscilloscope::resizeEvent(QResizeEvent *event)
 {
 
     // The plot-area is where the gridlines and the waveforms are plotted. It typically has
-    // a pre-defined margin to the entire available space, allowing auxiliary elements such
+    // a pre-defined margin to the entire available space, allowing as uxiliary elements such
     // as cursor arrows and markers to dock in between. Note that the tick marks are plotted
-    // outside of the plot-area.
+    // outside of the plot-area. Also don't forget to update the geometries of the markers.
 
     plotAreaRect = rect().adjusted(
         0 + plotAreaMarginLeft, 0 + plotAreaMarginTop,
         0 - plotAreaMarginRight, 0 - plotAreaMarginBottom);
 
     currentViewport.setSize(plotAreaRect.size());
+    for (int index = 0; index < cursors.count(); index++)
+        updateMarkerGeometry(cursors.value(index));
 
     // The following are rects in which scrolling is performed when the user moves the viewport.
 
@@ -151,8 +353,6 @@ void Oscilloscope::resizeEvent(QResizeEvent *event)
 
 }
 
-
-
 void Oscilloscope::paintEvent(QPaintEvent *event)
 {
     QPainter painter(this); QRect viewportRect;
@@ -190,11 +390,15 @@ void Oscilloscope::paintEvent(QPaintEvent *event)
 #define DRAW(OFFSET, AXIS, ALTAXIS, STEP, CACHE, DIS) { \
     QPoint offset = OFFSET; \
     int count = ((viewportRect.bottomRight() - offset)).ALTAXIS() / DIS + 1; \
-    if (count > 0) { painter.save(); painter.translate(offset); \
+    if (count > 0) { painter.translate(offset); \
         while ((viewportRect.bottomRight() - offset).AXIS() >= 0) { \
             painter.DRAWER(CACHE.data(), count); \
             painter.translate(STEP); offset += STEP; \
-        }   painter.restore(); } }
+        }   painter.translate(-offset); } }
+
+    // event->region.rects are organized in a much fragmented way that is not appropriate
+    // for high-efficiency drawing. We could either choose to optimize them, or simply
+    // to avoid using save-restore pair such that the additional 'drawing' processes take trivial time.
 
     painter.save();
     painter.setPen(Qt::white);
@@ -275,13 +479,21 @@ void Oscilloscope::paintEvent(QPaintEvent *event)
 
     painter.restore();
 
+    // ===
+
+    painter.save();
+    painter.setBackgroundMode(Qt::OpaqueMode);
+    painter.setPen(Qt::yellow);
+    painter.setBackground(Qt::black);
+
+    for (int index = 0; index < cursors.count(); index++) {
+        Marker *marker = cursors.value(index);
+        painter.drawPixmap(marker->drawRect, marker->drawBitmap);
+        painter.drawLine(marker->drawLine); }
+
+    painter.restore();
+
 }
-
-
-
-
-
-
 
 
 
